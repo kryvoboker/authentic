@@ -1,0 +1,152 @@
+name: "authentik"
+
+services:
+  authentik-server:
+    build:
+      context: $PWD
+      dockerfile: .docker/prod/authentik-server/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        UMASK: ${UMASK:-0002}
+    image: authentik-server:1.0
+    container_name: authentik-server
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authentik-server.rule=Host(`authentik.company.com`)"
+      - "traefik.http.routers.authentik-server.entrypoints=web,websecure"
+      - "traefik.http.routers.authentik-server.tls=true"
+      - "traefik.http.routers.authentik-server.tls.certresolver=traefikResolver"
+      - "traefik.http.services.authentik-server.loadbalancer.server.port=80"
+      - "traefik.http.routers.authentik-server.middlewares=global-ratelimit@file,global-inflight@file"
+    env_file:
+      - ../../.docker/prod/env/.env.postgresql
+      - ../../.docker/prod/env/.env
+#    ports:
+#      - "9443:9443" # For internal use for 443 port
+#      - "9000:9000" # For internal use for 80 port
+    restart: unless-stopped
+    volumes:
+      - ../../app-data/data:/data
+      - ../../app-data/custom-templates:/templates
+    security_opt:
+      - no-new-privileges:true       # Disables setuid/setgid
+      - apparmor=docker-default      # Limits syscalls and file system
+    cap_drop:
+      - ALL # Removes Linux capabilities
+    healthcheck:
+      test: [ "CMD-SHELL", "ak healthcheck || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    networks:
+      authentik-internal:
+      traefik-network:
+        aliases:
+          - authentik-server
+
+  authentik-worker:
+    build:
+      context: $PWD
+      dockerfile: .docker/prod/authentik-worker/Dockerfile
+    image: authentik-worker:1.0
+    container_name: authentik-worker
+    env_file:
+      - ../../.docker/prod/env/.env.postgresql
+      - ../../.docker/prod/env/.env
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "ak healthcheck || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../../app-data/data:/data
+      - ../../app-data/certs:/certs
+      - ../../app-data/custom-templates:/templates
+    security_opt:
+      - no-new-privileges:true       # Disables setuid/setgid
+      - apparmor=docker-default      # Limits syscalls and file system
+    cap_drop:
+      - ALL # Removes Linux capabilities
+    cap_add:
+      - CHOWN           # Changing file ownership
+      - DAC_OVERRIDE    # Bypassing access rights checks
+      - FOWNER          # File operations as the owner
+      - SETGID          # Changing the GID of a process
+      - SETUID          # Changing the UID of a process
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    networks:
+      - authentik-internal
+
+  authentik-proxy:
+    image: ghcr.io/goauthentik/proxy:2025.12.2
+    container_name: authentik-proxy
+    restart: unless-stopped
+    env_file:
+      - ../../.docker/prod/env/.env.postgresql
+      - ../../.docker/prod/env/.env.authentik_proxy
+    security_opt:
+      - no-new-privileges:true       # Disables setuid/setgid
+      - apparmor=docker-default      # Limits syscalls and file system
+    cap_drop:
+      - ALL # Removes Linux capabilities
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    networks:
+      - traefik-network
+      - authentik-internal
+
+  authentik-postgresql:
+    build:
+      context: $PWD
+      dockerfile: .docker/prod/postgresql/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        UMASK: ${UMASK:-0002}
+    image: authentik-postgresql:1.0-alpine
+    container_name: authentik-postgresql
+    env_file:
+      - ../../.docker/prod/env/.env.postgresql
+      - ../../.docker/prod/env/.env
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 20s
+      test: [
+        "CMD-SHELL",
+        "pg_isready --dbname=$${POSTGRES_DB} --username=$${POSTGRES_USER}"
+      ]
+      timeout: 5s
+    ports:
+      - "127.0.0.1:3345:5432"
+    restart: unless-stopped
+    volumes:
+      - ../../.db:/var/lib/postgresql
+    security_opt:
+      - no-new-privileges:true       # Disables setuid/setgid
+      - apparmor=docker-default      # Limits syscalls and file system
+    cap_drop:
+      - ALL # Removes Linux capabilities
+    networks:
+      - authentik-internal
+
+networks:
+  authentik-internal:
+    name: authentik-internal
+    driver: bridge
+    external: true
+  traefik-network:
+    name: traefik-network
+    driver: bridge
+    external: true
