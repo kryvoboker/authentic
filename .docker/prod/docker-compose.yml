@@ -129,7 +129,7 @@ services:
       ]
       timeout: 5s
     ports:
-      - "127.0.0.1:3345:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
     volumes:
       - ../../.db:/var/lib/postgresql
