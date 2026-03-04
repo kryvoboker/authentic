@@ -13,12 +13,12 @@ services:
     container_name: authentik-server
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.authentik-server.rule=Host(`authentik.company.com`)"
+      - "traefik.http.routers.authentik-server.rule=Host(`authentik.rkw-dev.com`)"
       - "traefik.http.routers.authentik-server.entrypoints=web,websecure"
       - "traefik.http.routers.authentik-server.tls=true"
       - "traefik.http.routers.authentik-server.tls.certresolver=traefikResolver"
       - "traefik.http.services.authentik-server.loadbalancer.server.port=80"
-      - "traefik.http.routers.authentik-server.middlewares=global-ratelimit@file,global-inflight@file"
+      - "traefik.http.routers.authentik-server.middlewares=protected-default@file"
     env_file:
       - ../../.docker/prod/env/.env.postgresql
       - ../../.docker/prod/env/.env
@@ -129,7 +129,7 @@ services:
       ]
       timeout: 5s
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:3345:5432"
     restart: unless-stopped
     volumes:
       - ../../.db:/var/lib/postgresql
